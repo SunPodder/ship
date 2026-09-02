@@ -1,8 +1,0 @@
-{
-	"name": "books-example",
-	"type": "module",
-	"dependencies": {
-		"ship": "workspace:*",
-		"@ship/sqlite": "workspace:*"
-	}
-}
