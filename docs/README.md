@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/ship-logo.webp" alt="Ship — Ship fast. Cache smart. Scale painlessly." width="520" />
+</p>
+
 # 🚢 Ship — Full-Stack CRUD Framework
 
 > **Ship fast. Cache smart. Scale painlessly.**
