@@ -1,0 +1,16 @@
+{
+  "name": "@ship/cli",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "ship": "./src/cli.ts"
+  },
+  "main": "src/cli.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ship/core": "file:../core",
+    "cac": "^6.7.14"
+  }
+}

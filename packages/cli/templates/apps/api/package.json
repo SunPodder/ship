@@ -1,0 +1,25 @@
+{
+  "name": "api",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "bun run --watch src/index.ts",
+    "build": "bun build src/index.ts --outdir dist --target bun",
+    "start": "bun run dist/index.js"
+  },
+  "dependencies": {
+    "@ship/auth": "^0.1.0",
+    "@ship/cache": "^0.1.0",
+    "@ship/core": "^0.1.0",
+    "@ship/db": "^0.1.0",
+    "@ship/graphql": "^0.1.0",
+    "@ship/storage": "^0.1.0",
+    "graphql-yoga": "^5.10.0",
+    "hono": "^4.6.14",
+    "mongoose": "^8.9.5",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.1.0"
+  }
+}

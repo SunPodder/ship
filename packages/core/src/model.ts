@@ -77,6 +77,12 @@ export interface AdminHints {
   listFields?: string[];
   searchField?: string;
   defaultSort?: { field: string; order: 'asc' | 'desc' };
+  label?: string;
+  pluralLabel?: string;
+  description?: string;
+  group?: string;
+  icon?: string;
+  hidden?: boolean;
 }
 
 export interface PaginationOptions {
@@ -97,8 +103,31 @@ export interface SearchModelOptions {
   rankingRules?: string[];
 }
 
+export interface ModelIndex {
+  fields: string[];
+  unique?: boolean;
+  type?: 'text' | '2dsphere' | 'geo2d' | 'hashed' | 'asc' | 'desc' | 'normal';
+  name?: string;
+}
+
+export interface ComputedField {
+  type?: string;
+  resolve: (row: Record<string, unknown>) => unknown;
+}
+
+export interface VirtualRelation {
+  model: string;
+  resolve: (
+    row: Record<string, unknown>,
+    ctx: { model: unknown },
+  ) => unknown | Promise<unknown>;
+}
+
 export interface ModelOptions {
   id?: 'objectid' | 'uuid' | 'cuid2' | 'nanoid';
+  collection?: string;
+  indexes?: ModelIndex[];
+  softDelete?: boolean;
   cache?: CacheModelOptions | false;
   permissions?: ModelPermissions;
   hooks?: ModelHooks;
@@ -106,6 +135,8 @@ export interface ModelOptions {
   pagination?: PaginationOptions;
   search?: SearchModelOptions;
   auditLog?: boolean;
+  computed?: Record<string, ComputedField>;
+  virtual?: Record<string, VirtualRelation>;
 }
 
 /* ─────────────────────────── Input type mapping ─────────────────────────── */
@@ -200,7 +231,12 @@ export function defineModel<N extends string, F extends FieldMap>(
   fields: F,
   options: ModelOptions = {},
 ): ModelDefinition<N, F> {
-  return { name, collection: pluralize(lowerFirst(name)), fields, options };
+  return {
+    name,
+    collection: options.collection ?? pluralize(lowerFirst(name)),
+    fields,
+    options,
+  };
 }
 
 /** Adds custom fields to a built-in model (e.g. the `User` model). */
@@ -224,3 +260,51 @@ export const BUILTIN_USER_FIELDS = {
   emailVerifiedAt: field.datetime({ nullable: true }),
   lastLoginAt: field.datetime({ nullable: true }),
 } satisfies FieldMap;
+
+/* ─────────────────────────── Built-in Media model ─────────────────────────── */
+
+/**
+ * Fields for Ship's built-in `Media` collection — the default asset library
+ * every CMS ships (Payload's `media`). Image/file uploads flow through
+ * `@ship/storage`, which optimizes them (WebP, resized variants) and writes
+ * the result into a `Media` record.
+ */
+export const BUILTIN_MEDIA_FIELDS = {
+  filename: field.text({ required: true }),
+  alt: field.text({ nullable: true }),
+  caption: field.text({ nullable: true }),
+  mimeType: field.text({ required: true }),
+  size: field.integer({ min: 0 }),
+  width: field.integer({ min: 0, nullable: true }),
+  height: field.integer({ min: 0, nullable: true }),
+  key: field.text({ nullable: true }),
+  url: field.url({ nullable: true }),
+  storage: field.text({ default: 'local' }),
+  sizes: field.json({ nullable: true }),
+} satisfies FieldMap;
+
+/**
+ * The default `Media` model, ready to drop into `defineConfig({ models: [Media, ...] })`.
+ * Override any option (permissions, cache, admin) by passing `overrides`.
+ */
+export function defineMediaModel(
+  overrides: ModelOptions = {},
+): ModelDefinition<'Media', typeof BUILTIN_MEDIA_FIELDS> {
+  return defineModel('Media', BUILTIN_MEDIA_FIELDS, {
+    collection: 'media',
+    cache: { ttl: 3600, tags: ['media'] },
+    permissions: {
+      list: 'authenticated',
+      read: 'public',
+      create: 'role:editor',
+      update: 'role:editor',
+      delete: 'role:admin',
+    },
+    admin: {
+      group: 'Media',
+      listFields: ['filename', 'mimeType', 'size', 'width', 'height'],
+      defaultSort: { field: 'createdAt', order: 'desc' },
+    },
+    ...overrides,
+  });
+}
