@@ -1,22 +1,19 @@
 /**
- * Ship SDK model API — typed CRUD over a single model's GraphQL operations.
+ * Ship SDK model API — typed CRUD over a single model's REST endpoints.
  *
- * `createModelApi` derives the query/mutation documents from a model's name
- * and fields, targeting the backend's schema-first SDL:
+ * `createModelApi` targets the generated REST routes:
  *
- *   query Post(...)        { posts(...)        { ... } }
- *   query Post($id: ID!)   { post(id: $id)     { ... } }
- *   mutation CreatePost    { createPost        { ... } }
- *   mutation UpdatePost    { updatePost        { ... } }
- *   mutation DeletePost    { deletePost            }
+ *   GET    /api/<collection>?q=&sort=&limit=&offset=&filter=
+ *   GET    /api/<collection>/:id
+ *   POST   /api/<collection>
+ *   PATCH  /api/<collection>/:id
+ *   DELETE /api/<collection>/:id
  */
 
 import {
-  lowerFirst,
-  pluralize,
-  type FieldMap,
-  type FieldInput,
   type CreateInput,
+  type FieldInput,
+  type FieldMap,
   type UpdateInput,
 } from '@ship/core';
 import { createShipClient, type ShipClientOptions } from './client';
@@ -48,78 +45,49 @@ export interface ModelApi<F extends FieldMap> {
 }
 
 export function createModelApi<F extends FieldMap>(
-  model: { name: string; fields: F },
+  model: { name: string; collection: string; fields: F },
   options: ShipClientOptions,
 ): ModelApi<F> {
   const client = createShipClient(options);
+  const base = `/api/${model.collection}`;
 
-  const Name = model.name;
-  const single = lowerFirst(Name);
-  const plural = pluralize(single);
-  const selection = `id ${Object.keys(model.fields).join(' ')} createdAt updatedAt`;
-
-  async function findMany(args: ListArgs<F> = {}): Promise<ModelRecord<F>[]> {
-    const document = `query ${Name}($filter: JSON, $sort: String, $limit: Int, $offset: Int, $q: String) { ${plural}(filter: $filter, sort: $sort, limit: $limit, offset: $offset, q: $q) { ${selection} } }`;
-    const data = await client.query<{ [key: string]: ModelRecord<F>[] }>(
-      document,
-      {
-        filter: args.where,
-        sort: args.orderBy,
-        limit: args.take,
-        offset: args.skip,
-        q: args.q,
-      },
-    );
-    return data[plural];
-  }
-
-  async function findFirst(args: ListArgs<F> = {}): Promise<ModelRecord<F> | null> {
-    const rows = await findMany({ ...args, take: 1 });
-    return rows[0] ?? null;
-  }
-
-  async function findById(id: string): Promise<ModelRecord<F> | null> {
-    const document = `query ${Name}($id: ID!) { ${single}(id: $id) { ${selection} } }`;
-    const data = await client.query<{ [key: string]: ModelRecord<F> | null }>(
-      document,
-      { id },
-    );
-    return data[single] ?? null;
-  }
-
-  async function create(input: CreateInput<F>): Promise<ModelRecord<F>> {
-    const document = `mutation Create${Name}($input: Create${Name}Input!) { create${Name}(input: $input) { ${selection} } }`;
-    const data = await client.mutate<{ [key: string]: ModelRecord<F> }>(document, {
-      input,
-    });
-    return data[`create${Name}`];
-  }
-
-  async function update(
-    id: string,
-    input: UpdateInput<F>,
-  ): Promise<ModelRecord<F> | null> {
-    const document = `mutation Update${Name}($id: ID!, $input: Update${Name}Input!) { update${Name}(id: $id, input: $input) { ${selection} } }`;
-    const data = await client.mutate<{ [key: string]: ModelRecord<F> | null }>(
-      document,
-      { id, input },
-    );
-    return data[`update${Name}`] ?? null;
-  }
-
-  async function deleteById(id: string): Promise<boolean> {
-    const document = `mutation Delete${Name}($id: ID!) { delete${Name}(id: $id) }`;
-    const data = await client.mutate<{ [key: string]: boolean }>(document, { id });
-    return data[`delete${Name}`];
+  function listPath(args: ListArgs<F>): string {
+    const params = new URLSearchParams();
+    if (args.q) params.set('q', args.q);
+    if (args.orderBy) params.set('sort', args.orderBy);
+    if (args.take != null) params.set('limit', String(args.take));
+    if (args.skip != null) params.set('offset', String(args.skip));
+    if (args.where) params.set('filter', JSON.stringify(args.where));
+    const query = params.toString();
+    return query ? `${base}?${query}` : base;
   }
 
   return {
-    findMany,
-    findFirst,
-    findById,
-    findBySlug: (slug: string) => findFirst({ where: { slug } as ListArgs<F>['where'] }),
-    create,
-    update,
-    delete: deleteById,
+    findMany: (args = {}) => client.get<ModelRecord<F>[]>(listPath(args)),
+
+    findFirst: async (args = {}) => {
+      const rows = await client.get<ModelRecord<F>[]>(
+        listPath({ ...args, take: 1 }),
+      );
+      return rows[0] ?? null;
+    },
+
+    findById: async (id) => {
+      const record = await client.get<ModelRecord<F> | null>(`${base}/${id}`);
+      return record ?? null;
+    },
+
+    findBySlug: async (slug) => {
+      const rows = await client.get<ModelRecord<F>[]>(
+        listPath({ where: { slug } as ListArgs<F>['where'] }),
+      );
+      return rows[0] ?? null;
+    },
+
+    create: (input) => client.post<ModelRecord<F>>(base, input),
+
+    update: (id, input) => client.patch<ModelRecord<F> | null>(`${base}/${id}`, input),
+
+    delete: (id) => client.del<boolean>(`${base}/${id}`),
   };
 }

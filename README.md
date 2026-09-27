@@ -4,11 +4,11 @@
 
 # Ship
 
-**Schema-first full-stack CMS.** Define your models once — get a typed GraphQL API, a daisyUI admin panel, automatic caching, and file uploads with WebP optimization. Built for people who want PayloadCMS's power without the lock-in: every generated file is yours to read and edit.
+**Schema-first full-stack CMS.** Define your models once — get a typed REST API, a daisyUI admin panel, automatic caching, and file uploads with WebP optimization. Built for people who want PayloadCMS's power without the lock-in: every generated file is yours to read and edit.
 
 ## Highlights
 
-- **Schema-first** — `defineModel()` drives the GraphQL schema, Mongoose models, validation, admin UI, and typed SDK.
+- **Schema-first** — `defineModel()` drives REST endpoints, Mongoose models, validation, admin UI, and typed SDK.
 - **Cached by default** — two-level cache (memory + Redis) with tag-based invalidation.
 - **Auto-generated admin** — daisyUI, themed, with a first-run admin bootstrap.
 - **Media, done** — image uploads auto-optimize to WebP with resized variants.
@@ -43,8 +43,7 @@ Open `http://localhost:3000/admin` — create your first admin user and go.
 | `@ship/cache` | Memory/Redis adapters + cache strategies |
 | `@ship/auth` | bcrypt + JWT + role/permission guards |
 | `@ship/storage` | sharp WebP pipeline + storage adapters |
-| `@ship/graphql` | GraphQL schema generator from models |
-| `@ship/sdk` | Typed GraphQL client |
+| `@ship/sdk` | Typed REST client |
 | `@ship/ui` | daisyUI admin component library |
 | `@ship/cli` | `ship create` / `dev` / `build` / `sail` / `generate` |
 
@@ -68,4 +67,4 @@ Open `http://localhost:3000/admin` — create your first admin user and go.
 
 ## Status
 
-Pre-`1.0`. Core scaffolding, CRUD engine, caching, auth, storage, GraphQL, SDK, UI, and CLI are implemented. `@ship/*` are linked locally (`ship create --link` is the default) until published to npm.
+Pre-`1.0`. Core scaffolding, CRUD engine, caching, auth, storage, REST API, SDK, UI, and CLI are implemented. `@ship/*` are linked locally (`ship create --link` is the default) until published to npm.

@@ -76,21 +76,25 @@ describe('Ship UI components', () => {
     expect(integer).toContain('type="number"');
   });
 
-  it('renders pagination text and disables next on the last page', () => {
+  it('renders page number and disables prev/next at the boundaries', () => {
     const mid = renderToStaticMarkup(
-      createElement(ShipPagination, { page: 2, pageCount: 5, onPage: () => {} }),
+      createElement(ShipPagination, { page: 2, hasNext: true, onPage: () => {} }),
     );
-    expect(mid).toContain('Page 2 of 5');
+    expect(mid).toContain('Page 2');
 
     const last = renderToStaticMarkup(
-      createElement(ShipPagination, { page: 5, pageCount: 5, onPage: () => {} }),
+      createElement(ShipPagination, { page: 5, hasNext: false, onPage: () => {} }),
     );
-    expect(last).toContain('disabled');
-    // Previous stays enabled, Next is disabled.
     const prevTag = last.match(/<button[^>]*>Previous<\/button>/)?.[0] ?? '';
     const nextTag = last.match(/<button[^>]*>Next<\/button>/)?.[0] ?? '';
     expect(prevTag).not.toContain('disabled=""');
     expect(nextTag).toContain('disabled=""');
+
+    const first = renderToStaticMarkup(
+      createElement(ShipPagination, { page: 1, hasNext: true, onPage: () => {} }),
+    );
+    const firstPrev = first.match(/<button[^>]*>Previous<\/button>/)?.[0] ?? '';
+    expect(firstPrev).toContain('disabled=""');
   });
 
   it('renders a search input', () => {

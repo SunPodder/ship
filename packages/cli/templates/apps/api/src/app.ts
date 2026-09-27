@@ -1,17 +1,22 @@
 /**
  * Ship API application factory.
  *
- * Builds a Hono app wired to a GraphQL Yoga schema generated from Ship model
- * definitions. `createApp()` is a pure factory — no side effects and no
- * project-config import — so it can be imported and booted in isolation (from
- * tests, alternative entry points, or embedded contexts).
+ * Builds a Hono app serving a REST CRUD API for every Ship model definition:
+ *
+ *   GET    /api/<collection>?q=&sort=&limit=&offset=&filter=
+ *   GET    /api/<collection>/:id
+ *   POST   /api/<collection>
+ *   PATCH  /api/<collection>/:id
+ *   DELETE /api/<collection>/:id
+ *
+ * `createApp()` is a pure factory — no side effects and no project-config
+ * import — so it can be imported and booted in isolation (from tests,
+ * alternative entry points, or embedded contexts).
  */
 
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { cors } from 'hono/cors';
-import { createYoga } from 'graphql-yoga';
 import mongoose, { type Model } from 'mongoose';
-import { buildGraphQLSchema, type ServiceResolvers } from '@ship/graphql';
 import { buildMongooseSchema } from '@ship/db';
 import {
   createCache,
@@ -24,7 +29,7 @@ import { BUILTIN_USER_FIELDS, type ModelDefinition } from '@ship/core';
 import { registerUploadRoute } from './upload';
 import { createAuthApp } from './auth';
 
-/** Resolved per-model caching settings handed to the service resolvers. */
+/** Resolved per-model caching settings handed to the service layer. */
 interface ModelCacheConfig {
   ttl: number;
   tags: string[];
@@ -68,15 +73,64 @@ export function compileModels(models: ModelDefinition[]): Record<string, Model<a
   return compiled;
 }
 
+/* ─────────────────────────── Serialization ─────────────────────────── */
+
+/** Recursively coerce Mongoose/BSON values into JSON-safe primitives. */
+function serializeValue(value: unknown): unknown {
+  if (value == null) return value;
+  if (value instanceof Date) return value.toISOString();
+  if (value instanceof mongoose.Types.ObjectId) return value.toString();
+  if (value instanceof mongoose.Types.Decimal128) return value.toString();
+  if (Array.isArray(value)) return value.map(serializeValue);
+  if (typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      out[k] = serializeValue(v);
+    }
+    return out;
+  }
+  return value;
+}
+
+/** Map a lean/tObject doc into the API shape: `{ id, ...fields, createdAt, updatedAt }`. */
+function serializeDoc(doc: Record<string, unknown> | null): Record<string, unknown> | null {
+  if (doc == null) return null;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(doc)) {
+    if (key === '_id') {
+      out.id = serializeValue(value);
+      continue;
+    }
+    if (key === '__v') continue;
+    out[key] = serializeValue(value);
+  }
+  return out;
+}
+
+/* ─────────────────────────── Service layer ─────────────────────────── */
+
+/** Transport-agnostic CRUD contract the REST routes delegate to. */
+export interface ServiceApi {
+  list(model: string, args: Record<string, unknown>): Promise<unknown[]>;
+  get(model: string, id: string): Promise<unknown | null>;
+  create(model: string, input: Record<string, unknown>): Promise<unknown>;
+  update(
+    model: string,
+    id: string,
+    input: Record<string, unknown>,
+  ): Promise<unknown | null>;
+  remove(model: string, id: string): Promise<boolean>;
+}
+
 /**
- * Build the service-layer resolvers the generated GraphQL schema delegates to.
- * Reads flow through the cache manager; writes invalidate the model's tags.
+ * Build the service layer the REST routes delegate to. Reads flow through the
+ * cache manager (caching JSON-safe serialized docs); writes invalidate tags.
  */
-export function makeResolvers(
+export function makeService(
   models: ModelDefinition[],
   modelsMap: Record<string, Model<any>>,
   cache: Cache,
-): ServiceResolvers {
+): ServiceApi {
   const configs: Record<string, ModelCacheConfig> = {};
   for (const model of models) {
     configs[model.name] = resolveCacheConfig(model);
@@ -132,7 +186,7 @@ export function makeResolvers(
         }
       }
 
-      return cache.remember(
+      const docs = await cache.remember(
         key(model, 'list', args),
         ttl,
         tags,
@@ -143,25 +197,34 @@ export function makeResolvers(
             .sort(sort)
             .skip(offset)
             .limit(limit)
-            .lean(),
+            .lean()
+            .then((rows) =>
+              (rows as Record<string, unknown>[]).map(serializeDoc),
+            ),
       );
+      return docs as unknown[];
     },
 
     async get(model, id) {
       const { ttl, tags } = configFor(model);
-      return cache.remember(
+      const doc = await cache.remember(
         key(model, 'single', id),
         ttl,
         tags,
         'cache-first',
-        () => modelsMap[model].findById(id).lean(),
+        () =>
+          modelsMap[model]
+            .findById(id)
+            .lean()
+            .then((d) => serializeDoc(d as Record<string, unknown> | null)),
       );
+      return doc as unknown | null;
     },
 
     async create(model, input) {
       const doc = await modelsMap[model].create(input);
       await cache.invalidateTags(configFor(model).tags);
-      return doc.toObject();
+      return serializeDoc(doc.toObject() as Record<string, unknown>);
     },
 
     async update(model, id, input) {
@@ -169,7 +232,7 @@ export function makeResolvers(
         .findByIdAndUpdate(id, { $set: input }, { new: true, runValidators: true })
         .lean();
       await cache.invalidateTags(configFor(model).tags);
-      return doc;
+      return serializeDoc(doc as Record<string, unknown> | null);
     },
 
     async remove(model, id) {
@@ -180,9 +243,40 @@ export function makeResolvers(
   };
 }
 
+/* ─────────────────────────── HTTP layer ─────────────────────────── */
+
+/** Parse list query params into the service `list` args shape. */
+function parseListArgs(c: Context): Record<string, unknown> {
+  const args: Record<string, unknown> = {};
+  const q = c.req.query('q');
+  if (q) args.q = q;
+  const sort = c.req.query('sort');
+  if (sort) args.sort = sort;
+  const limit = c.req.query('limit');
+  if (limit) args.limit = limit;
+  const offset = c.req.query('offset');
+  if (offset) args.offset = offset;
+  const filter = c.req.query('filter');
+  if (filter) {
+    try {
+      args.filter = JSON.parse(filter);
+    } catch {
+      // Ignore malformed filter; the service treats a missing filter as `{}`.
+    }
+  }
+  return args;
+}
+
+function notFound(c: Context, collection: string): Response {
+  return c.json(
+    { error: 'NOT_FOUND', message: `Unknown collection "${collection}"` },
+    404,
+  );
+}
+
 /**
- * Build the full Hono app: a `/health` check and a `/graphql` endpoint (with
- * GraphiQL) backed by the compiled models, cache manager, and generated schema.
+ * Build the full Hono app: `/health`, the auth routes, the upload route, and
+ * REST CRUD routes for every configured model.
  */
 export function createApp(config: { models: ModelDefinition[] }): Hono {
   const models = config.models;
@@ -190,20 +284,95 @@ export function createApp(config: { models: ModelDefinition[] }): Hono {
   const cache = createCache(createMemoryAdapter({ maxSize: 1000 }), {
     defaultTTL: 300,
   });
+  const service = makeService(models, modelsMap, cache);
 
-  const schema = buildGraphQLSchema(models, makeResolvers(models, modelsMap, cache));
-  const yoga = createYoga({ schema, graphiql: true });
+  const modelByCollection: Record<string, ModelDefinition> = {};
+  for (const model of models) {
+    modelByCollection[model.collection] = model;
+  }
 
   const app = new Hono();
   app.use('*', cors());
 
   const User =
     mongoose.models.User ??
-    mongoose.model('User', buildMongooseSchema(BUILTIN_USER_FIELDS, { timestamps: true }));
-  app.route('/', createAuthApp(User, process.env.JWT_SECRET ?? 'dev-insecure-secret-change-me'));
+    mongoose.model(
+      'User',
+      buildMongooseSchema(BUILTIN_USER_FIELDS, { timestamps: true }),
+    );
+  app.route(
+    '/',
+    createAuthApp(User, process.env.JWT_SECRET ?? 'dev-insecure-secret-change-me'),
+  );
 
   app.get('/health', (c) => c.json({ status: 'ok', version: '0.1.0' }));
-  app.all('/graphql', (c) => yoga.fetch(c.req.raw));
+
+  app.get('/api/:collection', async (c) => {
+    const model = modelByCollection[c.req.param('collection')];
+    if (!model) return notFound(c, c.req.param('collection'));
+    const rows = await service.list(model.name, parseListArgs(c));
+    return c.json({ data: rows });
+  });
+
+  app.get('/api/:collection/:id', async (c) => {
+    const model = modelByCollection[c.req.param('collection')];
+    if (!model) return notFound(c, c.req.param('collection'));
+    const doc = await service.get(model.name, c.req.param('id'));
+    return c.json({ data: doc });
+  });
+
+  app.post('/api/:collection', async (c) => {
+    const model = modelByCollection[c.req.param('collection')];
+    if (!model) return notFound(c, c.req.param('collection'));
+    const input =
+      (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
+    const doc = await service.create(model.name, input ?? {});
+    return c.json({ data: doc }, 201);
+  });
+
+  app.patch('/api/:collection/:id', async (c) => {
+    const model = modelByCollection[c.req.param('collection')];
+    if (!model) return notFound(c, c.req.param('collection'));
+    const input =
+      (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
+    const doc = await service.update(model.name, c.req.param('id'), input ?? {});
+    return c.json({ data: doc });
+  });
+
+  app.delete('/api/:collection/:id', async (c) => {
+    const model = modelByCollection[c.req.param('collection')];
+    if (!model) return notFound(c, c.req.param('collection'));
+    const ok = await service.remove(model.name, c.req.param('id'));
+    return c.json({ data: ok });
+  });
+
+  // Map uncaught service errors to the `{ error, message }` envelope.
+  app.onError((err, c) => {
+    if (err instanceof mongoose.Error.ValidationError) {
+      return c.json({ error: 'VALIDATION_ERROR', message: err.message }, 422);
+    }
+    if (
+      err instanceof Error &&
+      err.name === 'MongoServerError' &&
+      'code' in err &&
+      typeof err.code === 'number' &&
+      err.code === 11000
+    ) {
+      return c.json(
+        { error: 'CONFLICT', message: 'A record with that unique value already exists.' },
+        409,
+      );
+    }
+    console.error(err);
+    return c.json(
+      {
+        error: 'INTERNAL_ERROR',
+        message: err instanceof Error ? err.message : 'Internal server error',
+      },
+      500,
+    );
+  });
+
   registerUploadRoute(app);
   return app;
 }

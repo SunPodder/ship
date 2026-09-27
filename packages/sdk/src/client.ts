@@ -1,61 +1,66 @@
 /**
- * Ship SDK GraphQL client — a minimal typed transport over `fetch`.
+ * Ship SDK REST client — a minimal typed transport over `fetch`.
  *
- * `createShipClient` exposes `query` and `mutate`, which both POST a
- * GraphQL document to the configured endpoint and surface transport and
- * GraphQL-level failures as `ShipError`s.
+ * `createShipClient` exposes `get`/`post`/`patch`/`del`, which target the
+ * generated REST API and surface transport and application-level failures as
+ * `ShipError`s. Success responses use the `{ data }` envelope; errors use
+ * `{ error, message }`.
  */
 
 import { ShipError } from '@ship/core';
 
 export interface ShipClientOptions {
-  url: string;
+  /** API base URL, e.g. `http://localhost:3001`. */
+  baseUrl: string;
   fetchFn?: typeof fetch;
 }
 
-interface GraphQLResponse<T> {
-  data?: T;
-  errors?: Array<{ message: string }>;
+export interface ShipClient {
+  get<T>(path: string): Promise<T>;
+  post<T>(path: string, body: unknown): Promise<T>;
+  patch<T>(path: string, body: unknown): Promise<T>;
+  del<T>(path: string): Promise<T>;
 }
 
-export interface ShipClient {
-  query<T>(document: string, variables?: Record<string, unknown>): Promise<T>;
-  mutate<T>(document: string, variables?: Record<string, unknown>): Promise<T>;
+interface ApiEnvelope<T> {
+  data?: T;
+  error?: string;
+  message?: string;
 }
 
 export function createShipClient(options: ShipClientOptions): ShipClient {
   const fetchFn = options.fetchFn ?? fetch;
+  const base = options.baseUrl.replace(/\/+$/, '');
 
-  async function request<T>(
-    document: string,
-    variables?: Record<string, unknown>,
-  ): Promise<T> {
-    const response = await fetchFn(options.url, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ query: document, variables }),
-    });
+  async function request<T>(path: string, init: RequestInit): Promise<T> {
+    const response = await fetchFn(`${base}${path}`, init);
+    const body = (await response.json().catch(() => null)) as ApiEnvelope<T> | null;
 
-    const body = (await response.json()) as GraphQLResponse<T>;
-
-    const firstError = body.errors?.[0]?.message;
-    if (!response.ok || (body.errors && body.errors.length > 0)) {
+    if (!response.ok) {
       throw new ShipError(
-        'GRAPHQL_ERROR',
-        firstError ?? `Request failed with status ${response.status}`,
+        body?.error ?? 'REQUEST_FAILED',
+        body?.message ?? `Request failed with status ${response.status}`,
         { status: response.status },
       );
     }
 
-    return body.data as T;
+    return (body?.data ?? null) as T;
   }
 
   return {
-    query<T>(document: string, variables?: Record<string, unknown>): Promise<T> {
-      return request<T>(document, variables);
-    },
-    mutate<T>(document: string, variables?: Record<string, unknown>): Promise<T> {
-      return request<T>(document, variables);
-    },
+    get: (path) => request(path, { method: 'GET' }),
+    post: (path, body) =>
+      request(path, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+    patch: (path, body) =>
+      request(path, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+    del: (path) => request(path, { method: 'DELETE' }),
   };
 }

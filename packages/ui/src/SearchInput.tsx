@@ -15,7 +15,7 @@ export function ShipSearchInput({ value, onChange, placeholder }: SearchInputPro
       value={value}
       placeholder={placeholder}
       onChange={(e) => onChange(e.currentTarget.value)}
-      className="input input-bordered input-sm"
+      className="input input-bordered input-sm w-full max-w-xs"
     />
   );
 }

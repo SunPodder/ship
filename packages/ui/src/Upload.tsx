@@ -1,6 +1,7 @@
 /**
  * ShipImageUpload / ShipFileUpload — file-upload widgets that POST a `file`
  * field to an upload endpoint and surface the parsed result through `onUpload`.
+ * `value` (an existing asset URL) is shown as the initial preview.
  */
 
 'use client';
@@ -22,7 +23,9 @@ export interface UploadProps {
   name: string;
   accept?: string;
   label?: ReactNode;
+  /** Existing asset URL to preview before a new upload. */
   value?: string;
+  /** Upload endpoint. Defaults to `/upload`. */
   url?: string;
   onUpload?: (result?: UploadResult) => void;
 }
@@ -37,17 +40,24 @@ async function postUpload(file: File, url: string): Promise<UploadResult> {
 }
 
 /** Image upload widget with a local object-URL preview. */
-export function ShipImageUpload({ name, accept, label, url, onUpload }: UploadProps) {
-  const [preview, setPreview] = useState<string | null>(null);
+export function ShipImageUpload({
+  name,
+  accept,
+  label,
+  value,
+  url,
+  onUpload,
+}: UploadProps) {
+  const [preview, setPreview] = useState<string | null>(value ?? null);
 
   return (
-    <>
-      {label ? <label>{label}</label> : null}
+    <div className="space-y-2">
+      {label ? <span className="label-text">{label}</span> : null}
       <input
         type="file"
         name={name}
-        accept={accept}
-        className="file-input"
+        accept={accept ?? 'image/*'}
+        className="file-input file-input-bordered w-full"
         onChange={async (event) => {
           const file = event.target.files?.[0];
           if (!file) return;
@@ -60,23 +70,32 @@ export function ShipImageUpload({ name, accept, label, url, onUpload }: UploadPr
           }
         }}
       />
-      {preview ? <img src={preview} alt="" /> : null}
-    </>
+      {preview ? (
+        <img src={preview} alt="" className="h-24 w-24 rounded-box object-cover" />
+      ) : null}
+    </div>
   );
 }
 
 /** File upload widget that shows the selected file name. */
-export function ShipFileUpload({ name, accept, label, url, onUpload }: UploadProps) {
+export function ShipFileUpload({
+  name,
+  accept,
+  label,
+  value,
+  url,
+  onUpload,
+}: UploadProps) {
   const [fileName, setFileName] = useState<string | null>(null);
 
   return (
-    <>
-      {label ? <label>{label}</label> : null}
+    <div className="space-y-2">
+      {label ? <span className="label-text">{label}</span> : null}
       <input
         type="file"
         name={name}
         accept={accept}
-        className="file-input"
+        className="file-input file-input-bordered w-full"
         onChange={async (event) => {
           const file = event.target.files?.[0];
           if (!file) return;
@@ -89,7 +108,11 @@ export function ShipFileUpload({ name, accept, label, url, onUpload }: UploadPro
           }
         }}
       />
-      {fileName ? <span>{fileName}</span> : null}
-    </>
+      {fileName ? (
+        <p className="text-sm text-base-content/60">{fileName}</p>
+      ) : value ? (
+        <p className="text-sm text-base-content/60">{value}</p>
+      ) : null}
+    </div>
   );
 }

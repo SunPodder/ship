@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { hasAdmin, registerFirstAdmin, setToken } from '@/lib/auth';
+import { ThemeToggle } from '@/components/ThemeToggle';
 
 /**
  * First-run bootstrap — creates the initial admin user, then redirects to the
@@ -40,21 +41,31 @@ export default function CreateAdminPage() {
   }
 
   if (checking) {
-    return <main className="min-h-screen grid place-items-center bg-base-200">Loading…</main>;
+    return (
+      <main className="grid min-h-screen place-items-center bg-base-200">
+        <span className="loading loading-spinner loading-lg" />
+      </main>
+    );
   }
 
   return (
-    <main className="min-h-screen flex items-center justify-center bg-base-200 p-6">
+    <main className="relative flex min-h-screen items-center justify-center bg-base-200 p-6">
+      <div className="absolute right-4 top-4">
+        <ThemeToggle />
+      </div>
       <div className="card w-full max-w-sm bg-base-100 shadow-xl">
         <div className="card-body">
-          <img src="/ship-logo.webp" alt="Ship" className="h-12 object-contain mx-auto" />
-          <h2 className="card-title justify-center">Create your first admin user</h2>
-          <p className="text-sm text-base-content/70 text-center">
+          <div className="flex items-center justify-center gap-3">
+            <img src="/ship-mark.jpg" alt="" className="h-10 w-10 rounded-lg object-contain" />
+            <span className="text-2xl font-bold tracking-tight">Ship</span>
+          </div>
+          <h1 className="card-title justify-center">Create your first admin user</h1>
+          <p className="text-center text-sm text-base-content/60">
             Set up the admin account to get started.
           </p>
-          <form onSubmit={submit} className="space-y-3">
+          <form onSubmit={submit} className="space-y-4">
             <label className="form-control">
-              <span className="label-text">Email</span>
+              <span className="label-text font-medium">Email</span>
               <input
                 className="input input-bordered"
                 type="email"
@@ -65,7 +76,7 @@ export default function CreateAdminPage() {
               />
             </label>
             <label className="form-control">
-              <span className="label-text">Password (min 8 characters)</span>
+              <span className="label-text font-medium">Password (min 8 characters)</span>
               <input
                 className="input input-bordered"
                 type="password"

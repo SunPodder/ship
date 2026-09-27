@@ -42,4 +42,4 @@ Bun.serve({
   fetch: createApp(config).fetch,
 });
 
-console.log(`Ship API ready at http://localhost:${port}/graphql`);
+console.log(`Ship API ready at http://localhost:${port}/api`);

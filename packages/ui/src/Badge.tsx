@@ -1,10 +1,10 @@
 /**
- * ShipBadge — a small presentational status pill with daisyUI tone styles.
+ * ShipBadge — small presentational status pill with daisyUI tone styles.
  */
 
 import type { ReactNode } from 'react';
 
-export type BadgeTone = 'default' | 'success' | 'warning' | 'danger';
+export type BadgeTone = 'default' | 'neutral' | 'success' | 'warning' | 'danger';
 
 export interface BadgeProps {
   children: ReactNode;
@@ -13,6 +13,7 @@ export interface BadgeProps {
 
 const TONE_CLASSES: Record<BadgeTone, string> = {
   default: 'badge-info',
+  neutral: 'badge-ghost',
   success: 'badge-success',
   warning: 'badge-warning',
   danger: 'badge-error',

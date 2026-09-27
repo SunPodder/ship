@@ -40,10 +40,10 @@ describe('generateAdminPages', () => {
       );
 
       expect(ship).toContain("import { Post, Media } from '../../../../ship.config'");
-      expect(ship).toContain('post: createModelApi(Post, { url })');
-      expect(ship).toContain('media: createModelApi(Media, { url })');
+      expect(ship).toContain('post: createModelApi(Post, { baseUrl: url })');
+      expect(ship).toContain('media: createModelApi(Media, { baseUrl: url })');
 
-      expect(nav).toContain("{ label: 'Post', href: '/admin/posts' }");
+      expect(nav).toContain("{ label: 'Posts', href: '/admin/posts' }");
 
       expect(list).toContain("'use client'");
       expect(list).toContain('ShipTable');

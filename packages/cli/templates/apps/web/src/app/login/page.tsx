@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { login, setToken } from '@/lib/auth';
+import { ThemeToggle } from '@/components/ThemeToggle';
 
 /**
  * Login page — email + password against the Ship API.
@@ -29,14 +30,20 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="min-h-screen flex items-center justify-center bg-base-200 p-6">
+    <main className="relative flex min-h-screen items-center justify-center bg-base-200 p-6">
+      <div className="absolute right-4 top-4">
+        <ThemeToggle />
+      </div>
       <div className="card w-full max-w-sm bg-base-100 shadow-xl">
         <div className="card-body">
-          <img src="/ship-logo.webp" alt="Ship" className="h-12 object-contain mx-auto" />
-          <h2 className="card-title justify-center">Sign in</h2>
-          <form onSubmit={submit} className="space-y-3">
+          <div className="flex items-center justify-center gap-3">
+            <img src="/ship-mark.jpg" alt="" className="h-10 w-10 rounded-lg object-contain" />
+            <span className="text-2xl font-bold tracking-tight">Ship</span>
+          </div>
+          <h1 className="card-title justify-center">Sign in</h1>
+          <form onSubmit={submit} className="space-y-4">
             <label className="form-control">
-              <span className="label-text">Email</span>
+              <span className="label-text font-medium">Email</span>
               <input
                 className="input input-bordered"
                 type="email"
@@ -47,7 +54,7 @@ export default function LoginPage() {
               />
             </label>
             <label className="form-control">
-              <span className="label-text">Password</span>
+              <span className="label-text font-medium">Password</span>
               <input
                 className="input input-bordered"
                 type="password"

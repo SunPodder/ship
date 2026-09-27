@@ -1,5 +1,5 @@
 /**
- * @ship/sdk — typed GraphQL client and model API for Ship.
+ * @ship/sdk — typed REST client and model API for Ship.
  */
 
 export * from './client';

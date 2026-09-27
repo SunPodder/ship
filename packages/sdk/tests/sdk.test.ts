@@ -1,5 +1,5 @@
 /**
- * SDK tests — typed GraphQL client and model API behavior.
+ * SDK tests — typed REST client and model API behavior.
  */
 
 import { describe, expect, test } from 'bun:test';
@@ -8,20 +8,20 @@ import { createModelApi } from '../src/index';
 
 interface CapturedCall {
   url: string;
-  query: string;
-  variables?: Record<string, unknown>;
+  method: string;
+  body?: unknown;
 }
 
-function mockFetch(respond: (query: string) => unknown) {
+function mockFetch(respond: (call: CapturedCall) => { status?: number; body: unknown }) {
   const calls: CapturedCall[] = [];
   const fetchFn: typeof fetch = async (input, init) => {
-    const body = JSON.parse(String(init?.body ?? '{}')) as {
-      query: string;
-      variables?: Record<string, unknown>;
-    };
-    calls.push({ url: String(input), query: body.query, variables: body.variables });
-    return new Response(JSON.stringify(respond(body.query)), {
-      status: 200,
+    const url = String(input);
+    const method = init?.method ?? 'GET';
+    const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+    calls.push({ url, method, body });
+    const { status = 200, body: respBody } = respond(calls[calls.length - 1]);
+    return new Response(JSON.stringify(respBody), {
+      status,
       headers: { 'content-type': 'application/json' },
     });
   };
@@ -35,63 +35,90 @@ const record = {
   updatedAt: '2026-01-02T00:00:00.000Z',
 };
 
-function makeApi(respond: (query: string) => unknown) {
+function makeApi(respond: (call: CapturedCall) => { status?: number; body: unknown }) {
   const { fetchFn, calls } = mockFetch(respond);
   const api = createModelApi(
-    { name: 'Post', fields: { title: field.text() } },
-    { url: 'http://ship.test/graphql', fetchFn },
+    { name: 'Post', collection: 'posts', fields: { title: field.text() } },
+    { baseUrl: 'http://ship.test', fetchFn },
   );
   return { api, calls };
 }
 
 describe('createModelApi', () => {
-  test('list operation targets the plural query with the full selection', async () => {
-    const { api, calls } = makeApi(() => ({ data: { posts: [record] } }));
-    await api.findMany();
-    expect(calls[0].query).toContain('posts(filter:');
-    expect(calls[0].query).toContain('id title createdAt');
-  });
+  test('findMany targets GET /api/posts and returns records', async () => {
+    const { api, calls } = makeApi(() => ({ body: { data: [record] } }));
+    const rows = await api.findMany();
 
-  test('findMany maps where/take to filter/limit and returns records', async () => {
-    const { api, calls } = makeApi(() => ({ data: { posts: [record] } }));
-    const rows = await api.findMany({ where: { status: 'published' }, take: 10 });
     expect(rows).toEqual([record]);
-    expect(calls[0].variables).toEqual({ filter: { status: 'published' }, limit: 10 });
+    expect(calls[0].method).toBe('GET');
+    expect(new URL(calls[0].url).pathname).toBe('/api/posts');
   });
 
-  test('findById returns the mock record and targets post(id: $id)', async () => {
-    const { api, calls } = makeApi(() => ({ data: { post: record } }));
+  test('findMany maps where/take/orderBy to filter/limit/sort', async () => {
+    const { api, calls } = makeApi(() => ({ body: { data: [record] } }));
+    await api.findMany({
+      where: { status: 'published' },
+      take: 10,
+      orderBy: '-publishedAt',
+      q: 'hello',
+    });
+
+    const url = new URL(calls[0].url);
+    expect(url.searchParams.get('filter')).toBe('{"status":"published"}');
+    expect(url.searchParams.get('limit')).toBe('10');
+    expect(url.searchParams.get('sort')).toBe('-publishedAt');
+    expect(url.searchParams.get('q')).toBe('hello');
+  });
+
+  test('findById targets GET /api/posts/:id', async () => {
+    const { api, calls } = makeApi(() => ({ body: { data: record } }));
     expect(await api.findById('abc')).toEqual(record);
-    expect(calls[0].query).toContain('post(id: $id)');
+    expect(calls[0].method).toBe('GET');
+    expect(calls[0].url).toBe('http://ship.test/api/posts/abc');
   });
 
-  test('create uses the createPost mutation and returns the record', async () => {
-    const { api, calls } = makeApi(() => ({ data: { createPost: record } }));
+  test('create POSTs to /api/posts and returns the record', async () => {
+    const { api, calls } = makeApi(() => ({ body: { data: record } }));
     const created = await api.create({ title: 'Hi' });
+
     expect(created).toEqual(record);
-    expect(calls[0].query).toContain('mutation CreatePost');
-    expect(calls[0].query).toContain('createPost(input: $input)');
+    expect(calls[0].method).toBe('POST');
+    expect(calls[0].url).toBe('http://ship.test/api/posts');
+    expect(calls[0].body).toEqual({ title: 'Hi' });
   });
 
-  test('delete returns true', async () => {
-    const { api } = makeApi(() => ({ data: { deletePost: true } }));
+  test('update PATCHes /api/posts/:id', async () => {
+    const { api, calls } = makeApi(() => ({ body: { data: record } }));
+    await api.update('abc', { title: 'Changed' });
+
+    expect(calls[0].method).toBe('PATCH');
+    expect(calls[0].url).toBe('http://ship.test/api/posts/abc');
+    expect(calls[0].body).toEqual({ title: 'Changed' });
+  });
+
+  test('delete DELETEs /api/posts/:id and returns true', async () => {
+    const { api, calls } = makeApi(() => ({ body: { data: true } }));
     expect(await api.delete('abc')).toBe(true);
+    expect(calls[0].method).toBe('DELETE');
+    expect(calls[0].url).toBe('http://ship.test/api/posts/abc');
   });
 
-  test('a GraphQL errors response throws a ShipError', async () => {
+  test('a non-2xx response throws a ShipError with the server message', async () => {
     const { api } = makeApi(() => ({
-      data: null,
-      errors: [{ message: 'Something went wrong' }],
+      status: 422,
+      body: { error: 'VALIDATION_ERROR', message: 'Title is required' },
     }));
 
     let caught: unknown;
     try {
-      await api.findById('abc');
+      await api.create({ title: '' });
     } catch (error) {
       caught = error;
     }
 
     expect(caught).toBeInstanceOf(ShipError);
-    expect((caught as ShipError).code).toBe('GRAPHQL_ERROR');
+    expect((caught as ShipError).code).toBe('VALIDATION_ERROR');
+    expect((caught as ShipError).message).toBe('Title is required');
+    expect((caught as ShipError).status).toBe(422);
   });
 });
